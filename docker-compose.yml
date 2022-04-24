@@ -1,0 +1,67 @@
+services:
+
+  database:
+    image: postgres:14
+    container_name: ${POSTGRES_CONTAINER_NAME:-great_expectations_postgres}
+    user: postgres
+    networks:
+      - great_expectation_backend
+    restart: always
+    ports:
+      - ${POSTGRES_PORT:-5432}:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-greatexpectations}
+      - POSTRES_USER=${POSTRES_USER:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  s3:
+    image: minio/minio:latest
+    container_name: ${MINIO_CONTAINER_NAME:-great_expectations_minio}
+    ports:
+      - ${MINIO_API_PORT}:9000
+      - ${MINIO_UI_PORT:-9001}:9001
+    volumes:
+      - minio_data:/data
+    command: server --console-address ":9001" /data
+    networks:
+      - great_expectation_backend
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  mc:
+    image: minio/mc:latest
+    container_name: ${MC_CONTAINER_NAME:-great_expectations_mc}
+    depends_on:
+      - s3
+    networks:
+      - great_expectation_backend
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc config host rm local;
+      /usr/bin/mc config host add --quiet --api s3v4 local http://s3:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      /usr/bin/mc rb --force local/${MINIO_BUCKET_NAME}/;
+      /usr/bin/mc mb --quiet local/${MINIO_BUCKET_NAME}/;
+      /usr/bin/mc policy set public local/${MINIO_BUCKET_NAME};
+      "
+
+
+networks:
+  great_expectation_backend:
+
+
+volumes:
+  postgres_data:
+  minio_data:
